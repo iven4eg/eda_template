@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eda_template"
+version = "0.1.0"
+description = "Инструменты разведочного анализа данных для Jupyter"
+dependencies = [
+    "numpy",
+    "pandas>=1.5",
+    "matplotlib",
+    "seaborn",
+    "ipython",
+    "phik",
+]
+
+[tool.setuptools]
+packages = ["eda_template"]

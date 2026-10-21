@@ -1,0 +1,6 @@
+numpy
+pandas>=1.5
+matplotlib
+seaborn
+ipython
+phik

@@ -32,7 +32,7 @@ def _configure_notebook():
     pd.set_option("display.max_columns", None) # сколько колонок DataFrame pandas показывает при выводе
     pd.set_option("display.max_rows", 200) # максимальным числом строк, которое pandas показывает при выводе DataFrame
     sns.set_theme(style="whitegrid") # белый фон с сеткой (grid) по осям
-    warnings.filterwarnings("ignore") # отключение предупреждений, чтобы не засорять вывод в Jupyter
+    # warnings.filterwarnings("ignore") # отключение предупреждений, чтобы не засорять вывод в Jupyter
 
 # ---------------------------------------------------------
 # СЛУЖЕБНЫЕ ФУНКЦИИ
@@ -307,20 +307,83 @@ def _plot_corr(df, numeric_cols, max_cols=20, method="pearson"):
     plt.tight_layout()
     plt.show()
 
-def _plot_phik_corr(df):
-    """
-    Матрица PhiK-корреляций для любых типов признаков.
-    """
 
-    df_phik = df.copy()
-    timedelta_cols = df_phik.select_dtypes(include=["timedelta64[ns]"]).columns
-    cols_to_drop = timedelta_cols.tolist()
-    df_phik = df_phik.drop(columns=cols_to_drop)
+def _phik_corr(df,
+                interval_cols=None,
+                exclude_ph_cols=None,
+                bins=10,
+                quantile=False,):
     
-    corr = df_phik.phik_matrix()
+    """
+    Расчет матрицы PhiK без построения графиков.
+
+    Параметры:
+    - df: DataFrame
+    - Временные столбцы исключаются автоматически.
+    - interval_cols: список числовых interval-признаков для phik;
+      если None, phik попробует обработать автоматически
+    - exclude_ph_cols: список столбцов для исключения из расчёта PhiK (например текстовые)
+    - bins: количество бинов для дискретизации числовых признаков
+    - quantile: флаг для использования квантильной дискретизации
+    """
+    if not df.columns.is_unique:
+        raise ValueError("Названия столбцов должны быть уникальными.")
+
+    def normalize_columns(cols):
+        if cols is None:
+            return []
+        if isinstance(cols, str):
+            return [cols]
+        return list(cols)
+
+    excluded = normalize_columns(exclude_ph_cols)
+
+    unknown_excluded = [
+        col for col in excluded
+        if col not in df.columns
+    ]
+    if unknown_excluded:
+        raise ValueError(
+            "Не найдены столбцы из exclude_ph_cols: "
+            f"{unknown_excluded}"
+        )
+
+    # Даты и длительности
+    datetime_cols = df.select_dtypes(include=["datetime", "datetimetz", "timedelta"]).columns.tolist()
+    # Календарные периоды — проверяем отдельно
+    period_cols = [col for col in df.columns if isinstance(df[col].dtype, pd.PeriodDtype)]
+    # Общий список временных столбцов
+    drop_cols = list(set(excluded + datetime_cols + period_cols))
+    
+    # Остальные признаки сохраняем независимо от их типа
+    df_phik = df_phik.drop(columns=drop_cols).copy
+
+    if df_phik.empty or df_phik.shape[1] < 2:
+        raise ValueError(
+            "Для расчёта PhiK нужны строки и минимум два столбца "
+            "после исключений."
+        )
+    
+    phik_corr = df_phik.phik_matrix(
+        interval_cols=interval_cols,
+        bins=bins,
+        quantile=quantile,
+    )
+    return phik_corr
+
+
+def _plot_phik_corr(phik_corr):
+    """
+    Тепловая карта матрица PhiK-корреляций для любых типов признаков.
+    """
 
     plt.figure(figsize=(10, 8))
-    sns.heatmap(corr, cmap="coolwarm", center=0)
+    sns.heatmap(
+        phik_corr,
+        cmap="viridis",
+        vmin=0,
+        vmax=1,
+        )
     plt.title("Матрица PhiK-корреляций (смешанные типы признаков)")
     plt.tight_layout()
     plt.show()
@@ -363,7 +426,7 @@ def _plot_categorical(df, cols, max_cols=8, top_n=12):
         plt.show()
 
 
-def _target_eda(df, target, task, num_cols, cat_cols):
+def _target_eda(df, target, task, num_cols):
     """
     Анализ целевой переменной:
     - classification: баланс классов + boxplot по числовым признакам
@@ -421,7 +484,7 @@ def _target_relations(df,
     top_n=15,
     corr_method="pearson",
     use_phik=True,
-    phik_interval_cols=None
+    phik_corr=None
 ):
     """
     Анализ связи признаков с целевой переменной.
@@ -440,7 +503,8 @@ def _target_relations(df,
     - target: имя целевой колонки
     - top_n: сколько признаков показывать
     - corr_method: 'pearson' или 'spearman' для числового блока
-    - use_phik: считать ли PhiK
+    - use_phik: показывать ли связи с target по готовой матрице PhiK
+    - phik_corr: заранее рассчитанная матрица PhiK
     - phik_interval_cols: список числовых interval-признаков для phik;
       если None, phik попробует обработать автоматически
     """
@@ -495,48 +559,53 @@ def _target_relations(df,
     # 2. Блок PhiK: mixed data / общая сила связи
     # ------------------------------------------------------
     if use_phik:
-        try:
-            _md("###### PhiK: связь признаков с target")
+        _md("###### PhiK: связь признаков с target")
 
-            df_phik = df.copy()
-            timedelta_cols = df_phik.select_dtypes(include=["timedelta64[ns]"]).columns
-            cols_to_drop = timedelta_cols.tolist()
-            df_phik = df_phik.drop(columns=cols_to_drop)
-            
-            # interval_cols можно передать явно
-            if phik_interval_cols is None:
-                phik_corr = df_phik.phik_matrix()
-            else:
-                phik_corr = df_phik.phik_matrix(interval_cols=phik_interval_cols)
-
-            if target not in phik_corr.columns:
-                print("Не удалось получить PhiK для target.")
-                return
-
-            phik_target = (
-                phik_corr[target]
-                .drop(labels=[target], errors="ignore")
-                .sort_values(ascending=False)
+        if phik_corr is None:
+            raise ValueError(
+                "При use_phik=True необходимо передать "
+                "готовую матрицу phik_corr."
             )
 
-            display(phik_target.to_frame(name="phi_k_with_target").head(top_n))
-
-            plt.figure(figsize=(8, max(4, top_n * 0.35)))
-            sns.barplot(
-                x=phik_target.head(top_n).values,
-                y=phik_target.head(top_n).index,
-                orient="h"
+        if not isinstance(phik_corr, pd.DataFrame):
+            raise TypeError(
+                "phik_corr должна быть pandas DataFrame."
             )
-            plt.title("Топ признаков по PhiK-связи с target")
-            plt.xlabel("PhiK")
-            plt.ylabel("")
-            plt.tight_layout()
-            plt.show()
 
-        except ImportError:
-            print("Библиотека phik не установлена. Установи её: pip install phik")
-        except Exception as e:
-            print("Не удалось посчитать PhiK:", e)
+        if target not in phik_corr.columns:
+            print(
+                f"Target {target!r} отсутствует в матрице PhiK. "
+                "PhiK-график для target пропущен."
+            )
+            return
+
+        phik_target = (
+            phik_corr[target]
+            .drop(labels=[target], errors="ignore")
+            .dropna()
+            .sort_values(ascending=False)
+            .head(top_n)
+        )
+
+        if phik_target.empty:
+            print("Нет определённых коэффициентов PhiK для target.")
+            return
+    
+        display(phik_target.to_frame(name="phi_k_with_target"))
+
+        plt.figure(figsize=(8, max(4, top_n * 0.35)))
+        sns.barplot(
+            x=phik_target.values,
+            y=phik_target.index,
+            orient="h"
+        )
+        plt.title("Топ признаков по PhiK-связи с target")
+        plt.xlabel("PhiK")
+        plt.ylabel("")
+        plt.xlim(0, 1)
+        plt.tight_layout()
+        plt.show()
+
 
 
 # ---------------------------------------------------------
@@ -604,7 +673,11 @@ def full_eda(
     max_numeric_plots=10,
     max_categorical_plots=6,
     top_n_categories=12,
-    exclude_cols=None
+    exclude_cols=None,
+    interval_cols=None,
+    bins=10,
+    quantile=False,
+    exclude_ph_cols=None
 ):
     """
     ПОЛНЫЙ EDA:
@@ -710,9 +783,10 @@ def full_eda(
     else:
         print("Datetime-признаки не найдены.")
 
-    _plot_phik_corr(df_copy)
+    phik_corr = _phik_corr(df_copy, interval_cols=interval_cols, exclude_ph_cols=exclude_ph_cols, bins=bins, quantile=quantile)
+    _plot_phik_corr(phik_corr)
     
     if target is not None:
         _md("##### Target")
-        _target_eda(df_copy, target, task, num_cols, cat_cols)
-        _target_relations(df_copy, target, corr_method="pearson", use_phik=True)
+        _target_eda(df_copy, target, task, num_cols)
+        _target_relations(df_copy, target, corr_method="pearson", use_phik=True, phik_corr=phik_corr)

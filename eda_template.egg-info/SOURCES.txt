@@ -1,8 +1,0 @@
-pyproject.toml
-eda_template/__init__.py
-eda_template/eda_template.py
-eda_template.egg-info/PKG-INFO
-eda_template.egg-info/SOURCES.txt
-eda_template.egg-info/dependency_links.txt
-eda_template.egg-info/requires.txt
-eda_template.egg-info/top_level.txt

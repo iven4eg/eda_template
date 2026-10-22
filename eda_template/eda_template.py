@@ -356,7 +356,7 @@ def _phik_corr(df,
     drop_cols = list(set(excluded + datetime_cols + period_cols))
     
     # Остальные признаки сохраняем независимо от их типа
-    df_phik = df_phik.drop(columns=drop_cols).copy
+    df_phik = df.drop(columns=drop_cols).copy()
 
     if df_phik.empty or df_phik.shape[1] < 2:
         raise ValueError(
@@ -380,7 +380,7 @@ def _plot_phik_corr(phik_corr):
     plt.figure(figsize=(10, 8))
     sns.heatmap(
         phik_corr,
-        cmap="viridis",
+        cmap="coolwarm",
         vmin=0,
         vmax=1,
         )
